@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IZBU Sanal Asistan</title>
+    <link rel="stylesheet" type="text/css" href="static/site.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://unpkg.com/@tensorflow/tfjs"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+</head>
+
+<body>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400&display=swap');
+    </style>
+    <div class="chat-container">
+        <div class="header">
+            <img src="../static/views/logo.png" class="chat-logo">
+            <div class="language-switcher">
+                <label for="language"></label>
+                <select id="language" name="language" onchange="changeLanguage()">
+                    <option value="tr" {% if session.get('language', 'en' )=='tr' %}selected{% endif %}>Türkçe</option>
+                    <option value="en" {% if session.get('language', 'en' )=='en' %}selected{% endif %}>English</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="chat-box">
+            <img src="../static/views/31.png">
+            <div class="messages" id="chat-messages">
+                {% for message in messages %}
+                <div class="message {% if message['sender'] == 'user' %}user-message{% else %}bot-message{% endif %}">
+                    <p class="bot-response">{{ message['text'] | safe }}</p>
+                </div>
+                {% endfor %}
+            </div>
+
+            <form action="/handle_form" method="post" class="input-form">
+                <input type="text" id="question" name="question" placeholder="{% if session.get('language', 'en' ) == 'tr' %}Sorunuzu buraya yazın...{% else %}Write your question here...{% endif %}" required>
+                <button type="submit" class="round-button">{% if session.get('language', 'en' ) == 'tr' %}Gönder{% else %}Send{% endif %}</button>
+                <button type="button" onclick="speakBotResponse()" class="round-button">
+                    <i class="fas fa-volume-up"></i>
+                </button>
+                <button type="button" onclick="startSpeechRecognition()" class="round-button">
+                    <i class="fas fa-microphone"></i>
+                </button>
+                <button type="button" onclick="clearMessages()" class="round-button">
+                    Temizle
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        var speaking = false;
+        var recognition;
+        var spokenWords = '';
+
+        function changeLanguage() {
+            var languageSelect = document.getElementById("language");
+            var selectedLanguage = languageSelect.options[languageSelect.selectedIndex].value;
+
+            var submitButton = document.querySelector('.input-form button[type="submit"]');
+            var inputPlaceholder = document.getElementById("question");
+
+            if (selectedLanguage === 'tr') {
+                submitButton.textContent = 'Gönder';
+                inputPlaceholder.placeholder = 'Sorunuzu buraya yazın...';
+            } else {
+                submitButton.textContent = 'Send';
+                inputPlaceholder.placeholder = 'Write your question here...';
+            }
+
+            window.location.href = "/?language=" + selectedLanguage;
+        }
+
+        function speakResponse(response) {
+            var synth = window.speechSynthesis;
+            var utterance = new SpeechSynthesisUtterance(response);
+            synth.speak(utterance);
+
+            utterance.onend = function () {
+                speaking = false;
+            };
+        }
+        function speakBotResponse() {
+            if (speaking) {
+                window.speechSynthesis.cancel();
+                speaking = false;
+            } else {
+                var botMessages = document.querySelectorAll('.bot-message');
+                var botMessage = botMessages[botMessages.length - 1];
+                if (botMessage) {
+                    var botResponse = botMessage.textContent.trim();
+                    speakResponse(botResponse);
+                    speaking = true;
+                }
+            }
+        }
+
+        document.querySelector('.input-form').addEventListener('submit', function () {
+            if (speaking) {
+                window.speechSynthesis.cancel();
+                speaking = false;
+            }
+        });
+
+        function speakUserQuestion() {
+            var userQuestion = document.getElementById("question").value;
+            speakResponse("Kullanıcının sorusu: " + userQuestion);
+        }
+
+        function startSpeechRecognition() {
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = true;
+
+                recognition.onstart = function () {
+                    console.log('Speech recognition started');
+                    spokenWords = '';
+                };
+
+                recognition.onresult = function (event) {
+                    var userVoiceInput = event.results[0][0].transcript;
+                    document.getElementById("question").value = userVoiceInput;
+
+                    spokenWords += ' ' + userVoiceInput;
+                };
+
+                recognition.onend = function () {
+                    console.log('Speech recognition ended');
+
+                    if (spokenWords.trim() !== '') {
+                        var messagesDiv = document.querySelector('.messages');
+                        var userMessageDiv = document.createElement('div');
+                        userMessageDiv.className = 'message user-message';
+                        userMessageDiv.innerHTML = '<p>' + spokenWords.trim() + '</p>';
+                        messagesDiv.appendChild(userMessageDiv);
+                    }
+                };
+
+                recognition.start();
+            } else {
+                alert('Your browser does not support the Web Speech API.');
+            }
+        }
+
+        function scrollToBottom() {
+            var chatMessages = document.getElementById("chat-messages");
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Sayfa yüklendiğinde ve yeni mesaj eklendiğinde otomatik olarak en alta kaydır
+        window.onload = scrollToBottom;
+
+        // scrollToBottom parametresine göre sayfayı kaydır
+        scrollToBottom();
+
+        function clearMessages() {
+            fetch('/clear_messages', {
+                method: 'POST'
+            }).then(() => {
+                document.querySelector('.messages').innerHTML = '';
+            }).catch((error) => {
+                console.error('Error clearing messages:', error);
+            });
+        }
+
+    </script>
+</body>
+</html>
